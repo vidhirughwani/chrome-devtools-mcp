@@ -65,7 +65,7 @@ export const exploreMemorySnapshot = definePageTool({
         () => {
           /* noop */
         },
-        import.meta.resolve('./third_party/devtools-heap-snapshot-worker.js'),
+        import.meta.resolve('../third_party/devtools-heap-snapshot-worker.js'),
       );
 
     try {
@@ -92,22 +92,19 @@ export const exploreMemorySnapshot = definePageTool({
 
       await loaderProxy.close();
 
-      throw new Error('Waiting');
-
       const snapshot = await snapshotPromise;
       const stats = await snapshot.getStatistics();
 
-      throw new Error('Stats');
-
       response.appendResponseLine(
         `Statistics: ${JSON.stringify(stats, null, 2)}`,
+      );
+      response.appendResponseLine(
+        `Static Data: ${JSON.stringify(snapshot.staticData, null, 2)}`,
       );
 
       const filter =
         new DevTools.HeapSnapshotModel.HeapSnapshotModel.NodeFilter();
       const aggregates = await snapshot.aggregatesWithFilter(filter);
-
-      throw new Error('Aggregated');
 
       const {pageSize, pageIdx} = request.params;
       response.setHeapSnapshot(aggregates, {pageSize, pageIdx});
@@ -142,7 +139,8 @@ export const compareMemorySnapshots = definePageTool({
           () => {
             /* noop */
           },
-          import.meta.resolve('./third_party/devtools-heap-snapshot-worker.js'),
+          import.meta
+            .resolve('../third_party/devtools-heap-snapshot-worker.js'),
         );
       const {promise: snapshotPromise, resolve: resolveSnapshot} =
         Promise.withResolvers<DevTools.HeapSnapshotModel.HeapSnapshotProxy.HeapSnapshotProxy>();

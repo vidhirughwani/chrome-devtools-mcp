@@ -45,6 +45,12 @@ describe('memory', () => {
       await withMcpContext(async (response, context) => {
         const filePath = join(tmpdir(), 'test-explore.heapsnapshot');
         try {
+          await takeMemorySnapshot.handler(
+            {params: {filePath}, page: context.getSelectedMcpPage()},
+            response,
+            context,
+          );
+
           await exploreMemorySnapshot.handler(
             {params: {filePath}, page: context.getSelectedMcpPage()},
             response,
