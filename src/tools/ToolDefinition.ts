@@ -100,6 +100,10 @@ export interface DevToolsData {
 
 export interface Response {
   appendResponseLine(value: string): void;
+  setHeapDiff(
+    diff: Record<string, DevTools.HeapSnapshotModel.HeapSnapshotModel.Diff>,
+    options?: PaginationOptions,
+  ): void;
   setHeapSnapshot(
     aggregates: Record<
       string,

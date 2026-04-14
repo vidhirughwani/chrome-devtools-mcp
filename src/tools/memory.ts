@@ -111,3 +111,81 @@ export const exploreMemorySnapshot = definePageTool({
     }
   },
 });
+
+export const compareMemorySnapshots = definePageTool({
+  name: 'compare_memory_snapshots',
+  description: 'Compare two heap snapshots and return the diff.',
+  annotations: {
+    category: ToolCategory.PERFORMANCE,
+    readOnlyHint: true,
+  },
+  schema: {
+    beforeFilePath: zod.string().describe('Path to the before snapshot.'),
+    afterFilePath: zod.string().describe('Path to the after snapshot.'),
+    pageSize: zod.number().optional().describe('Page size for pagination.'),
+    pageIdx: zod.number().optional().describe('Page index for pagination.'),
+  },
+  handler: async (request, response, _context) => {
+    const {beforeFilePath, afterFilePath} = request.params;
+
+    async function loadSnapshot(filePath: string) {
+      const absolutePath = path.resolve(filePath);
+      const workerProxy =
+        new DevTools.HeapSnapshotModel.HeapSnapshotProxy.HeapSnapshotWorkerProxy(
+          () => {
+            /* noop */
+          },
+        );
+      const {promise: snapshotPromise, resolve: resolveSnapshot} =
+        Promise.withResolvers<DevTools.HeapSnapshotModel.HeapSnapshotProxy.HeapSnapshotProxy>();
+
+      const loaderProxy = workerProxy.createLoader(
+        1,
+        (
+          snapshotProxy: DevTools.HeapSnapshotModel.HeapSnapshotProxy.HeapSnapshotProxy,
+        ) => {
+          resolveSnapshot(snapshotProxy);
+        },
+      );
+
+      const fileStream = fs.createReadStream(absolutePath, {
+        encoding: 'utf-8',
+        highWaterMark: 1024 * 1024,
+      });
+
+      for await (const chunk of fileStream) {
+        await loaderProxy.write(chunk);
+      }
+
+      await loaderProxy.close();
+      return {snapshot: await snapshotPromise, workerProxy};
+    }
+
+    const {snapshot: snapshotBefore, workerProxy: worker1} =
+      await loadSnapshot(beforeFilePath);
+    const {snapshot: snapshotAfter, workerProxy: worker2} =
+      await loadSnapshot(afterFilePath);
+
+    try {
+      const interfaceDefs = await snapshotAfter.interfaceDefinitions();
+      const aggregatesForDiff =
+        await snapshotBefore.aggregatesForDiff(interfaceDefs);
+      const diff = await snapshotAfter.calculateSnapshotDiff(
+        'before',
+        aggregatesForDiff,
+      );
+
+      if (diff && typeof diff === 'object') {
+        const {pageSize, pageIdx} = request.params;
+        response.setHeapDiff(diff, {pageSize, pageIdx});
+      } else {
+        response.appendResponseLine('No diff data returned.');
+      }
+    } catch (err) {
+      response.appendResponseLine(`Comparison failed: ${err}`);
+    } finally {
+      worker1.dispose();
+      worker2.dispose();
+    }
+  },
+});
