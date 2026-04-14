@@ -6,6 +6,8 @@
 
 import type {ParsedArguments} from './bin/chrome-devtools-mcp-cli-options.js';
 import {ConsoleFormatter} from './formatters/ConsoleFormatter.js';
+import {HeapDiffFormatter} from './formatters/HeapDiffFormatter.js';
+import {HeapSnapshotFormatter} from './formatters/HeapSnapshotFormatter.js';
 import {IssueFormatter} from './formatters/IssueFormatter.js';
 import {NetworkFormatter} from './formatters/NetworkFormatter.js';
 import {SnapshotFormatter} from './formatters/SnapshotFormatter.js';
@@ -164,8 +166,22 @@ export class McpResponse implements Response {
   #attachedTraceSummary?: TraceResult;
   #attachedTraceInsight?: TraceInsightData;
   #attachedLighthouseResult?: LighthouseData;
+  #attachedMemorySnapshot?: string;
   #textResponseLines: string[] = [];
   #images: ImageContentData[] = [];
+  #heapDiffOptions?: {
+    include: boolean;
+    diff: Record<string, DevTools.HeapSnapshotModel.HeapSnapshotModel.Diff>;
+    pagination?: PaginationOptions;
+  };
+  #heapSnapshotOptions?: {
+    include: boolean;
+    aggregates: Record<
+      string,
+      DevTools.HeapSnapshotModel.HeapSnapshotModel.AggregatedInfo
+    >;
+    pagination?: PaginationOptions;
+  };
   #networkRequestsOptions?: {
     include: boolean;
     pagination?: PaginationOptions;
@@ -351,6 +367,31 @@ export class McpResponse implements Response {
 
   appendResponseLine(value: string): void {
     this.#textResponseLines.push(value);
+  }
+
+  setHeapDiff(
+    diff: Record<string, DevTools.HeapSnapshotModel.HeapSnapshotModel.Diff>,
+    options?: PaginationOptions,
+  ) {
+    this.#heapDiffOptions = {
+      include: true,
+      diff,
+      pagination: options,
+    };
+  }
+
+  setHeapSnapshot(
+    aggregates: Record<
+      string,
+      DevTools.HeapSnapshotModel.HeapSnapshotModel.AggregatedInfo
+    >,
+    options?: PaginationOptions,
+  ) {
+    this.#heapSnapshotOptions = {
+      include: true,
+      aggregates,
+      pagination: options,
+    };
   }
 
   attachImage(value: ImageContentData): void {
@@ -585,6 +626,7 @@ export class McpResponse implements Response {
       extensions,
       lighthouseResult: this.#attachedLighthouseResult,
       inPageTools,
+      memorySnapshot: this.#attachedMemorySnapshot,
     });
   }
 
@@ -602,6 +644,7 @@ export class McpResponse implements Response {
       extensions?: InstalledExtension[];
       lighthouseResult?: LighthouseData;
       inPageTools?: ToolGroup<ToolDefinition>;
+      memorySnapshot?: string;
     },
   ): {content: Array<TextContent | ImageContent>; structuredContent: object} {
     const structuredContent: {
@@ -631,6 +674,8 @@ export class McpResponse implements Response {
       };
       pages?: object[];
       pagination?: object;
+      heapDiff?: object[];
+      heapSnapshot?: object[];
       extensionServiceWorkers?: object[];
       extensionPages?: object[];
     } = {};
@@ -827,6 +872,60 @@ Call ${handleDialog.name} to handle it before continuing.`);
       }
     }
 
+    if (this.#heapDiffOptions?.include) {
+      const diff = this.#heapDiffOptions.diff;
+      const entries = Object.entries(diff);
+      const validEntries = entries.filter(
+        (
+          entry,
+        ): entry is [
+          string,
+          DevTools.HeapSnapshotModel.HeapSnapshotModel.Diff,
+        ] => {
+          const [, d] = entry;
+          return d.sizeDelta !== undefined && d.name !== undefined;
+        },
+      );
+
+      const sortedEntries = validEntries.sort(
+        (a, b) => b[1].sizeDelta - a[1].sizeDelta,
+      );
+
+      const paginationData = this.#dataWithPagination(
+        sortedEntries,
+        this.#heapDiffOptions.pagination,
+      );
+
+      structuredContent.pagination = paginationData.pagination;
+      response.push(...paginationData.info);
+
+      const paginatedRecord = Object.fromEntries(paginationData.items);
+      const formatter = new HeapDiffFormatter(paginatedRecord);
+
+      response.push(formatter.toString());
+      structuredContent.heapDiff = formatter.toJSON();
+    }
+
+    if (this.#heapSnapshotOptions?.include) {
+      const aggregates = this.#heapSnapshotOptions.aggregates;
+      const entries = Object.entries(aggregates);
+      const sortedEntries = entries.sort((a, b) => b[1].self - a[1].self);
+
+      const paginationData = this.#dataWithPagination(
+        sortedEntries,
+        this.#heapSnapshotOptions.pagination,
+      );
+
+      structuredContent.pagination = paginationData.pagination;
+      response.push(...paginationData.info);
+
+      const paginatedRecord = Object.fromEntries(paginationData.items);
+      const formatter = new HeapSnapshotFormatter(paginatedRecord);
+
+      response.push(formatter.toString());
+      structuredContent.heapSnapshot = formatter.toJSON();
+    }
+
     if (data.detailedNetworkRequest) {
       response.push(data.detailedNetworkRequest.toStringDetailed());
       structuredContent.networkRequest =
@@ -883,6 +982,7 @@ Call ${handleDialog.name} to handle it before continuing.`);
           requests,
           this.#networkRequestsOptions.pagination,
         );
+
         structuredContent.pagination = paginationData.pagination;
         response.push(...paginationData.info);
         if (data.networkRequests) {
