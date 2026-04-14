@@ -52,18 +52,20 @@ export const exploreMemorySnapshot = definePageTool({
     pageIdx: zod.number().optional().describe('Page index for pagination.'),
   },
   handler: async (request, response, _context) => {
-    const page = request.page;
+    // const page = request.page;
 
-    await page.pptrPage.captureHeapSnapshot({
-      path: request.params.filePath,
-    });
+    // await page.pptrPage.captureHeapSnapshot({
+    //   path: request.params.filePath,
+    // });
 
     const absolutePath = path.resolve(request.params.filePath);
+
     const workerProxy =
       new DevTools.HeapSnapshotModel.HeapSnapshotProxy.HeapSnapshotWorkerProxy(
         () => {
           /* noop */
         },
+        import.meta.resolve('./third_party/devtools-heap-snapshot-worker.js'),
       );
 
     try {
@@ -90,17 +92,22 @@ export const exploreMemorySnapshot = definePageTool({
 
       await loaderProxy.close();
 
+      throw new Error('Waiting');
+
       const snapshot = await snapshotPromise;
       const stats = await snapshot.getStatistics();
+
+      throw new Error('Stats');
 
       response.appendResponseLine(
         `Statistics: ${JSON.stringify(stats, null, 2)}`,
       );
 
-      const aggregates = await snapshot.getAggregatesByClassKey(
-        true,
-        'allObjects',
-      );
+      const filter =
+        new DevTools.HeapSnapshotModel.HeapSnapshotModel.NodeFilter();
+      const aggregates = await snapshot.aggregatesWithFilter(filter);
+
+      throw new Error('Aggregated');
 
       const {pageSize, pageIdx} = request.params;
       response.setHeapSnapshot(aggregates, {pageSize, pageIdx});
@@ -135,6 +142,7 @@ export const compareMemorySnapshots = definePageTool({
           () => {
             /* noop */
           },
+          import.meta.resolve('./third_party/devtools-heap-snapshot-worker.js'),
         );
       const {promise: snapshotPromise, resolve: resolveSnapshot} =
         Promise.withResolvers<DevTools.HeapSnapshotModel.HeapSnapshotProxy.HeapSnapshotProxy>();
