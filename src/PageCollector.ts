@@ -17,7 +17,7 @@ import {
   type Browser,
   type Frame,
   type Handler,
-  type HTTPRequest,
+  type HTTPRequest ,
   type Page,
   type PageEvents as PuppeteerPageEvents,
 } from './third_party/index.js';
